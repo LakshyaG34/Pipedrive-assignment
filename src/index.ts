@@ -11,6 +11,7 @@ const companyDomain = process.env.PIPEDRIVE_COMPANY_DOMAIN;
 // Write your code here
 const syncPdPerson = async (): Promise<PipedrivePerson> => {
   try {
+    //edge case 1
     if(!apiKey || !companyDomain)
     {
       throw new Error("Missing fields")
@@ -27,10 +28,13 @@ const syncPdPerson = async (): Promise<PipedrivePerson> => {
     }
 
     const personName = payload["name"];
+    
+    //edge case 2
     if(!personName)
     {
       throw new Error("Name field Missing in payload");
     }
+
     if(payload.email)
     {
       payload.email = [{value: payload.email, primary: true}];
@@ -47,6 +51,12 @@ const syncPdPerson = async (): Promise<PipedrivePerson> => {
     
     const searchRes = await fetch(searchURL);
     const searchData = await searchRes.json();
+
+    //edge case 3
+    if(searchData?.data?.items?.length>1)
+    {
+      console.log("Multiple Persons found with same name", searchData.data.items[0].item.id)
+    }
 
     let person: PipedrivePerson;
 
