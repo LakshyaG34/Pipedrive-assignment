@@ -9,6 +9,7 @@ dotenv.config();
 const apiKey = process.env.PIPEDRIVE_API_KEY;
 const companyDomain = process.env.PIPEDRIVE_COMPANY_DOMAIN;
 
+//Edge case 1
 if (!apiKey || !companyDomain) {
   throw new Error(
     "Missing either Api key or company domain, please make sure missing files are in env"
@@ -30,12 +31,14 @@ type Mapping = {
   inputKey: string;
 };
 
+//Edge case 2(If mapped data is nested)
 const nestedResolve = (obj: any, path: string): any => {
   return path.split(".").reduce((curr, key) => {
     return curr && curr[key] !== undefined ? curr[key] : undefined;
   }, obj);
 };
 
+//Improved Error Checking
 const checkHttpError = async (res: NodeFetchResponse) => {
   if (!res.ok) {
     if (res.status === 401) {
@@ -136,14 +139,14 @@ export const syncPdPerson = async (): Promise<PipedrivePerson> => {
     });
     console.log("Final payload before sync:", JSON.stringify(payload, null, 2));
 
-
+    //Edge case 3
     if (!nameValue) {
       throw new Error(
         "Cannot search for existing person."
       );
     }
 
-    // Check if person already exists
+    //Edge case 4(Check if person already exists)
     const existingPerson = await findPersonByName(nameValue);
 
     if (existingPerson) {
@@ -162,6 +165,7 @@ export const syncPdPerson = async (): Promise<PipedrivePerson> => {
   }
 };
 
+//Edge case5(since we are calling asynchronous function, need to wrap the syncPdPerson() inside async-await)
 (async () => {
   try {
     const person = await syncPdPerson();
