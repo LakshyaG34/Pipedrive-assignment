@@ -1,148 +1,176 @@
 import dotenv from "dotenv";
 import type { PipedrivePerson } from "./types/pipedrive";
-// import  
 import inputData from "./mappings/inputData.json";
 import mappings from "./mappings/mappings.json";
-import { pipedriveclient } from "./pipeDriveClient";
+import axios from "axios";
 
+// Load environment variables from .env file
 dotenv.config();
 
+// Get API key and company domain from environment variables
 const apiKey = process.env.PIPEDRIVE_API_KEY;
-// const companyDomain = process.env.PIPEDRIVE_COMPANY_DOMAIN;
+const companyDomain = process.env.PIPEDRIVE_COMPANY_DOMAIN;
 
-function nestingResolve(obj: any, path: string):any {
-  return path.split(".").reduce((acc, key)=>acc?.[key], obj);
+if (!apiKey || !companyDomain) {
+  throw new Error(
+    "Missing required environment variables: PIPEDRIVE_API_KEY or PIPEDRIVE_COMPANY_DOMAIN"
+  );
+}
+const PIPEDRIVE_API_BASE = `https://${companyDomain}.pipedrive.com/api/v1`;
+
+interface Mapping {
+  pipedrivekey: string;
+  inputkey: string;
 }
 
-// Write your code here
+interface ApiRes<T> {
+  data: T;
+  inputKey: string;
+  success: boolean;
+  additional_data?: any;
+}
 
-const syncPdPerson = async (): Promise<PipedrivePerson> => {
+const nestedResolve = (obj: any, path: string): any => {
+  return path.split(".").reduce((curr, key) => {
+    return curr && curr[key] !== undefined ? curr[key] : undefined;
+  }, obj);
+};
+
+const findPersonbyName = async (
+  name: string
+): Promise<PipedrivePerson | null> => {
   try {
-    //edge case 1
-    if(!apiKey)
-    {
-      throw new Error("Missing ApiKey")
-    }
-
-    const payload: Partial<PipedrivePerson> = {};
-    
-    for(const map of mappings as {pipedriveKey: string, inputKey: string}[])
-    {
-      // payload[map.pipedriveKey] = nestingResolve(inputData, map.inputKey);
-      const value = nestingResolve(inputData, map.inputKey);
-      if(value===null || value===undefined)
+    const response = await axios.get<ApiRes<PipedrivePerson[]>>(
+      `${PIPEDRIVE_API_BASE}/persons/search`,
       {
-        continue;
+        params: {
+          api_token: apiKey,
+          term: name,
+          fields: "name",
+        },
       }
-      if(map.pipedriveKey === "email")
+    );
+    if (
+      response.data.success &&
+      response.data.data &&
+      response.data.data.length > 0
+    ) {
+      return response.data.data[0];
+    }
+    return null;
+  } catch (error) {
+    console.error("Error searching for person:", error);
+    throw new Error(
+      `Failed to search for person: ${
+        error instanceof Error ? error.message : "Unknown error"
+      }`
+    );
+  }
+};
+const createPerson = async (
+  personData: Partial<PipedrivePerson>
+): Promise<PipedrivePerson> => {
+  try {
+    const response = await axios.post<ApiRes<PipedrivePerson>>(
+      `${PIPEDRIVE_API_BASE}/persons`,
       {
-        payload.email = [{ label: "work", value, primary: true }]
+        ...personData,
+        api_token: apiKey,
       }
-      else if(map.pipedriveKey === "phone")
-      {
-        payload.phone = [{label: "work", value, primary: true}]
-      }
-      else{
-        (payload as any)[map.pipedriveKey] = value;
-      }
+    );
+
+    if (!response.data.success) {
+      throw new Error("Failed to create person");
     }
 
-    if(!payload.name)
-    {
-      throw new Error("Name field is missing in the payload");
-    }
-
-    const emailValue = payload.email?.[0]?.value;
-
-    let existingPerson: PipedrivePerson | null = null;
-
-    if(emailValue){
-      existingPerson = await pipedriveclient.searchPerson(emailValue);
-    }
-
-    if(existingPerson)
-    {
-      return await pipedriveclient.updatePerson(existingPerson.id, payload);
-    }
-    else{
-      return await pipedriveclient.createPerson(payload);
-    }
-  } catch (error: any) {
-    // Handle error
-    console.log("Error occured", error.message);
-    throw error;
+    return response.data.data;
+  } catch (error) {
+    console.error("Error creating person:", error);
+    throw new Error(
+      `Failed to create person: ${
+        error instanceof Error ? error.message : "Unknown error"
+      }`
+    );
   }
 };
 
-(async () => {
-  const pipedrivePerson = await syncPdPerson();
-  console.log("Synced person:", pipedrivePerson);
-})();
+const updatePerson = async (
+  personId: number,
+  personData: Partial<PipedrivePerson>
+): Promise<PipedrivePerson> => {
+  try {
+    const response = await axios.put<ApiRes<PipedrivePerson>>(
+      `${PIPEDRIVE_API_BASE}/persons/${personId}`,
+      {
+        ...personData,
+        api_token: apiKey,
+      }
+    );
 
+    if (!response.data.success) {
+      throw new Error("Failed to update person");
+    }
 
-// const personName = payload["name"] as string | undefined;
+    return response.data.data;
+  } catch (error) {
+    console.error("Error updating person:", error);
+    throw new Error(
+      `Failed to update person: ${
+        error instanceof Error ? error.message : "Unknown error"
+      }`
+    );
+  }
+};
 
-    // //edge case 2
-    // if(!personName)
-    // {
-    //   throw new Error("Name field Missing in payload");
-    // }
+// Write your code here
+const syncPdPerson = async (): Promise<PipedrivePerson> => {
+  try {
+    // Write your code here
+    const payload: Partial<PipedrivePerson> = {};
+    let nameValue: string | undefined;
 
-    // if(payload.email)
-    // {
-    //   payload.email = [{value: payload.email, primary: true}];
-    // }
-    // if(payload.phone)
-    // {
-    //   payload.phone = [{value: payload.phone, primary: true}];
-    // }
-    // console.log("Payload:", JSON.stringify(payload, null, 2));
+    mappings.forEach((mappings: Mapping) => {
+      const value = nestedResolve(inputData, mappings.inputkey);
+      if (value !== undefined) {
+        payload[mappings.pipedrivekey as keyof PipedrivePerson] = value;
 
-    // const searchURL = `https://api.pipedrive.com/v2/persons/search?term=${encodeURIComponent(
-    //   personName
-    // )}&api_token=${apiKey}`;
-    
-    // const searchRes = await fetch(searchURL);
-    // if(!searchRes.ok)
-    // {
-    //   throw new Error(`Failed to search Person. Status: ${searchRes.status} ${searchRes.statusText}`)
-    // }
-    // const searchData: Pipe = await searchRes.json();
+        if (mappings.pipedrivekey === "name") {
+          nameValue = value;
+        }
+      }
+    });
 
-    // //edge case 3
-    // if(searchData?.data?.items?.length>1)
-    // {
-    //   console.log("Multiple Persons found with same name", searchData.data.items[0].item.id)
-    // }
+    if (!nameValue) {
+      throw new Error(
+        "No name mapping found. Cannot search for existing person."
+      );
+    }
 
-    // let person: PipedrivePerson;
+    const existingPerson = await findPersonbyName(nameValue);
 
-    // if(searchData?.data?.items?.length>0)
-    // {
-    //   const personId = searchData.data.items[0].item.id;
-    //   // const updateURL = `https://${companyDomain}.pipedrive.com/v1/persons/${personId}?api_token=${apiKey}`
+    let result: PipedrivePerson;
 
-    //   //changing from v1 pipedrive API to v2 pipedrive API
-    //   const updateURL = `https://api.pipedrive.com/v2/persons/${personId}?api_token=${apiKey}`;
-    //   const updateRes = await fetch(updateURL,{
-    //     method: "PUT",
-    //     headers: {"Content-type": "application/json"},
-    //     body: JSON.stringify(payload),
-    //   });
+    if (existingPerson) {
+      console.log(`Updating existing person with ID: ${existingPerson.id}`);
+      result = await updatePerson(existingPerson.id, payload);
+    } else {
+      console.log("Create a new Person");
+      result = await createPerson(payload);
+    }
 
-    //   const updatePerson = await updateRes.json();
-    //   person = updatePerson;
-    // }
-    // else{
-    //   const createURL = `https://api.pipedrive.com/v2/persons?api_token=${apiKey}`
-    //   const createRes = await fetch(createURL, {
-    //     method: "POST",
-    //     headers: {"Content-type": "application/json"},
-    //     body: JSON.stringify(payload),
-    //   });
+    console.log("Sync completed successfully");
+    return result;
+  } catch (error) {
+    // Handle error
+    console.error("Error in syncPdPerson:", error);
 
-    //   const createPerson = await createRes.json();
-    //   person = createPerson.data;
-    // }
+    if (error instanceof Error) {
+      throw new Error(`Synchronization failed: ${error.message}`);
+    }
 
-    // return person;
+    throw new Error("Synchronization failed due to an unknown error");
+  }
+};
+
+const pipedrivePerson = syncPdPerson();
+console.log(pipedrivePerson);
