@@ -1,34 +1,35 @@
 import dotenv from "dotenv";
+import fetch, { Response } from "node-fetch";
 import type { PipedrivePerson } from "./types/pipedrive";
 import inputData from "./mappings/inputData.json";
 import mappings from "./mappings/mappings.json";
-import axios from "axios";
 
-// Load environment variables from .env file
+
 dotenv.config();
 
-// Get API key and company domain from environment variables
 const apiKey = process.env.PIPEDRIVE_API_KEY;
 const companyDomain = process.env.PIPEDRIVE_COMPANY_DOMAIN;
 
 if (!apiKey || !companyDomain) {
-  throw new Error(
-    "Missing required environment variables: PIPEDRIVE_API_KEY or PIPEDRIVE_COMPANY_DOMAIN"
-  );
-}
-const PIPEDRIVE_API_BASE = `https://${companyDomain}.pipedrive.com/api/v1`;
-
-interface Mapping {
-  pipedrivekey: string;
-  inputkey: string;
+  throw new Error("❌ Missing env vars: Please set PIPEDRIVE_API_KEY and PIPEDRIVE_COMPANY_DOMAIN in .env");
 }
 
-interface ApiRes<T> {
-  data: T;
-  inputKey: string;
+type PipedriveResponse<T> = {
   success: boolean;
+  data: T;
   additional_data?: any;
+};
+
+type SearchPersonResponse = {
+  items: { item: PipedrivePerson }[];
+};
+
+type Mapping = {
+  pipedriveKey: string;
+  inputKey: string;
 }
+
+
 
 const nestedResolve = (obj: any, path: string): any => {
   return path.split(".").reduce((curr, key) => {
@@ -36,105 +37,82 @@ const nestedResolve = (obj: any, path: string): any => {
   }, obj);
 };
 
-const findPersonbyName = async (
-  name: string
-): Promise<PipedrivePerson | null> => {
-  try {
-    const response = await axios.get<ApiRes<PipedrivePerson[]>>(
-      `${PIPEDRIVE_API_BASE}/persons/search`,
-      {
-        params: {
-          api_token: apiKey,
-          term: name,
-          fields: "name",
-        },
-      }
-    );
-    if (
-      response.data.success &&
-      response.data.data &&
-      response.data.data.length > 0
-    ) {
-      return response.data.data[0];
-    }
-    return null;
-  } catch (error) {
-    console.error("Error searching for person:", error);
-    throw new Error(
-      `Failed to search for person: ${
-        error instanceof Error ? error.message : "Unknown error"
-      }`
-    );
-  }
-};
-const createPerson = async (
-  personData: Partial<PipedrivePerson>
-): Promise<PipedrivePerson> => {
-  try {
-    const response = await axios.post<ApiRes<PipedrivePerson>>(
-      `${PIPEDRIVE_API_BASE}/persons`,
-      {
-        ...personData,
-        api_token: apiKey,
-      }
-    );
 
-    if (!response.data.success) {
-      throw new Error("Failed to create person");
+const checkHttpError = async (res: Response) => {
+  if (!res.ok) {
+    if (res.status === 401) {
+      throw new Error("❌ Unauthorized (401): Check your PIPEDRIVE_API_KEY.");
+    } else if (res.status === 400) {
+      throw new Error("❌ Bad Request (400): Invalid payload sent to Pipedrive.");
+    } else if (res.status >= 500) {
+      throw new Error(`❌ Server Error (${res.status}): Try again later.`);
+    } else {
+      throw new Error(`❌ HTTP Error ${res.status}: ${res.statusText}`);
     }
-
-    return response.data.data;
-  } catch (error) {
-    console.error("Error creating person:", error);
-    throw new Error(
-      `Failed to create person: ${
-        error instanceof Error ? error.message : "Unknown error"
-      }`
-    );
   }
 };
 
-const updatePerson = async (
-  personId: number,
-  personData: Partial<PipedrivePerson>
-): Promise<PipedrivePerson> => {
-  try {
-    const response = await axios.put<ApiRes<PipedrivePerson>>(
-      `${PIPEDRIVE_API_BASE}/persons/${personId}`,
-      {
-        ...personData,
-        api_token: apiKey,
-      }
-    );
 
-    if (!response.data.success) {
-      throw new Error("Failed to update person");
-    }
+const findPersonByName = async (name: string): Promise<PipedrivePerson | null> => {
+  const url = `https://${companyDomain}.pipedrive.com/api/v1/persons/search?term=${encodeURIComponent(
+    name
+  )}&api_token=${apiKey}`;
 
-    return response.data.data;
-  } catch (error) {
-    console.error("Error updating person:", error);
-    throw new Error(
-      `Failed to update person: ${
-        error instanceof Error ? error.message : "Unknown error"
-      }`
-    );
-  }
+  const res = await fetch(url);
+  await checkHttpError(res);
+
+  const data = (await res.json()) as PipedriveResponse<SearchPersonResponse>;
+  if (!data.success) throw new Error(`❌ Failed to search person: ${JSON.stringify(data)}`);
+
+  return data.data?.items?.length > 0 ? data.data.items[0].item : null;
 };
 
-// Write your code here
-const syncPdPerson = async (): Promise<PipedrivePerson> => {
+
+const createPerson = async (payload: Record<string, any>): Promise<PipedrivePerson> => {
+  const url = `https://${companyDomain}.pipedrive.com/api/v1/persons?api_token=${apiKey}`;
+  const res = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+
+  await checkHttpError(res);
+
+  const data = (await res.json()) as PipedriveResponse<PipedrivePerson>;
+  if (!data.success) throw new Error(`❌ Failed to create person: ${JSON.stringify(data)}`);
+
+  return data.data;
+};
+
+
+const updatePerson = async (id: number, payload: Record<string, any>): Promise<PipedrivePerson> => {
+  const url = `https://${companyDomain}.pipedrive.com/api/v1/persons/${id}?api_token=${apiKey}`;
+  const res = await fetch(url, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+
+  await checkHttpError(res);
+
+  const data = (await res.json()) as PipedriveResponse<PipedrivePerson>;
+  if (!data.success) throw new Error(`❌ Failed to update person: ${JSON.stringify(data)}`);
+
+  return data.data;
+};
+
+
+export const syncPdPerson = async (): Promise<PipedrivePerson> => {
   try {
-    // Write your code here
     const payload: Partial<PipedrivePerson> = {};
     let nameValue: string | undefined;
 
     mappings.forEach((mappings: Mapping) => {
-      const value = nestedResolve(inputData, mappings.inputkey);
+      const value = nestedResolve(inputData, mappings.inputKey);
       if (value !== undefined) {
-        payload[mappings.pipedrivekey as keyof PipedrivePerson] = value;
+        payload[mappings.pipedriveKey as keyof PipedrivePerson] = value;
 
-        if (mappings.pipedrivekey === "name") {
+        if (mappings.pipedriveKey === "name") {
           nameValue = value;
         }
       }
@@ -146,31 +124,32 @@ const syncPdPerson = async (): Promise<PipedrivePerson> => {
       );
     }
 
-    const existingPerson = await findPersonbyName(nameValue);
-
-    let result: PipedrivePerson;
+    // Check if person already exists
+    const existingPerson = await findPersonByName(nameValue);
 
     if (existingPerson) {
-      console.log(`Updating existing person with ID: ${existingPerson.id}`);
-      result = await updatePerson(existingPerson.id, payload);
+      // Edge case 3: Update existing person if found
+      const updatedPerson = await updatePerson(existingPerson.id, payload);
+      console.log("✅ Updated existing person:", updatedPerson);
+      return updatedPerson;
     } else {
-      console.log("Create a new Person");
-      result = await createPerson(payload);
+      // Edge case 4: Create new person if not found
+      const newPerson = await createPerson(payload);
+      console.log("✅ Created new person:", newPerson);
+      return newPerson;
     }
-
-    console.log("Sync completed successfully");
-    return result;
   } catch (error) {
-    // Handle error
-    console.error("Error in syncPdPerson:", error);
-
-    if (error instanceof Error) {
-      throw new Error(`Synchronization failed: ${error.message}`);
-    }
-
-    throw new Error("Synchronization failed due to an unknown error");
+    console.error("❌ Error syncing Pipedrive person:", error);
+    throw error;
   }
 };
 
-const pipedrivePerson = syncPdPerson();
-console.log(pipedrivePerson);
+
+(async () => {
+  try {
+    const person = await syncPdPerson();
+    console.log("✅ Final Pipedrive Person:", person);
+  } catch (error) {
+    console.error("❌ Sync failed:", error);
+  }
+})();
