@@ -64,7 +64,7 @@ const findPersonByName = async (
 
   const data = (await res.json()) as PipedriveResponse<SearchPersonResponse>;
   if (!data.success)
-    throw new Error(`❌ Failed to search person: ${JSON.stringify(data)}`);
+    throw new Error(`Failed to search person: ${JSON.stringify(data)}`);
 
   return data.data?.items?.length > 0 ? data.data.items[0].item : null;
 };
