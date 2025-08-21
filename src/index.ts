@@ -45,7 +45,7 @@ const checkHttpError = async (res: NodeFetchResponse) => {
       throw new Error("Unauthorized (401): Check your your api token.");
     } else if (res.status === 400) {
       throw new Error(
-        "❌ Bad Request (400): Invalid payload."
+        "Bad Request (400): Invalid payload."
       );
     } else if (res.status >= 500) {
       throw new Error(`Server Error (${res.status})`);
@@ -131,7 +131,6 @@ export const syncPdPerson = async (): Promise<PipedrivePerson> => {
           payload[mapping.pipedriveKey] = value;
         }
 
-        // Store the name value for searching
         if (mapping.pipedriveKey === "name") {
           nameValue = value;
         }
