@@ -4,11 +4,11 @@
     "inputKey": "fullName"
   },
   {
-    "pipedriveKey": "email",
+    "pipedriveKey": "emails",
     "inputKey": "emailAdress"
   },
   {
-    "pipedriveKey": "phone",
+    "pipedriveKey": "phones",
     "inputKey": "phone.home"
   }
 ]
