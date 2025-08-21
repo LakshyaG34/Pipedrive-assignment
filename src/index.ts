@@ -175,3 +175,5 @@ export const syncPdPerson = async (): Promise<PipedrivePerson> => {
     process.exit(1);
   }
 })();
+
+//Assignment Completed with v2
